@@ -35,9 +35,7 @@ param(
       $cred = get-credential
       $creds = $cred.GetNetworkCredential();
     }
-    $proxyaddress = $webclient.Proxy.GetProxy($url).Authority
-    Write-host "Using this proxyserver: $proxyaddress"
-    $proxy = New-Object System.Net.WebProxy($proxyaddress)
+    $proxy = [System.Net.WebRequest]::GetSystemWebProxy()
     $proxy.credentials = $creds
     $req.proxy = $proxy
   }
@@ -48,7 +46,21 @@ param(
     Write-Debug "Setting the UserAgent to `'$userAgent`'"
     $req.UserAgent = $userAgent
   }
-  $res = $req.GetResponse();
+  try {
+    $res = $req.GetResponse();
+  } catch [System.Net.WebException] {
+    if ($_.Exception -match ".*\(407\).*") {
+      # retry with proxy auth
+      $req2 = [System.Net.HttpWebRequest]::Create($req.RequestUri)
+      $req2.proxy = $req.proxy
+      $req = $req2
+      $cred = get-credential
+      $req.proxy.credentials = $cred.GetNetworkCredential();
+      $res = $req.GetResponse();
+    } else {
+      throw
+    }
+  }
 
   if($fileName -and !(Split-Path $fileName)) {
     $fileName = Join-Path (Get-Location -PSProvider "FileSystem") $fileName
